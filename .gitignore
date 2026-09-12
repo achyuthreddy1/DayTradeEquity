@@ -1,0 +1,35 @@
+.venv/
+__pycache__/
+*.pyc
+.dhan_cache/
+.fyers_cache/
+trades.csv
+equity_curve.csv
+.env
+*.log
+pdh_breakout/output/
+pdh_breakout/data/*.csv
+strategy_lab/output/
+
+# ---------------------------------------------------------------------------
+# Paper-trading secrets and runtime state. NEVER COMMIT.
+# ---------------------------------------------------------------------------
+# .secrets holds FYERS_ID / FYERS_PIN / FYERS_TOTP_SECRET -- a TOTP seed is
+# durable account access, not an expiring token, so this is the one line here
+# that actually matters. .env (access token) was already ignored above.
+.secrets
+
+# Generated measurement data. Committing it would mix machine state into the
+# repo and, worse, make replay/live contamination invisible in diffs.
+# NOTE the trailing slash on execution_log/ -- without it this would also
+# ignore execution_log.py, which is source and MUST be committed.
+*.db
+execution_log/
+.nse_status/
+journal.csv
+signals.csv
+
+# VPS layout (/opt/paper-trading): runtime dirs, not source.
+data/
+logs/
+reports/

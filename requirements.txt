@@ -1,0 +1,11 @@
+pandas>=2.0
+numpy>=1.24
+requests>=2.28
+fyers-apiv3>=3.1
+
+# zoneinfo reads the SYSTEM tz database; minimal server images (and Oracle
+# Linux minimal in particular) sometimes ship without it, which would make
+# ZoneInfo("Asia/Kolkata") raise at import and take the whole session down.
+# This is the pure-Python fallback zoneinfo uses when the system copy is
+# absent. Harmless where /usr/share/zoneinfo already exists.
+tzdata>=2024.1

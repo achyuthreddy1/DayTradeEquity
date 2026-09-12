@@ -1,0 +1,59 @@
+[Unit]
+# Phase 2 paper trading -- one session per trading day.
+#
+#   systemd timer -> flock -> session_guard.py -> weekend/holiday check -> live.py
+#                                                                            |
+#                                                          frozen engine.py / paper_config.py
+#
+# The guard runs FIRST so a closed day costs zero API calls: live.py's
+# build_baselines() fetches ~100 symbols x 20 days before it looks at
+# anything, so the gate has to sit in front of the whole process.
+Description=NSE midcap ORB-short paper trading session
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# A session runs once and ends at 15:15 IST. NEVER restart it: on a holiday
+# the guard exits immediately, and Restart=always would turn that clean exit
+# into an infinite loop hammering the NSE and Fyers APIs all day.
+Restart=no
+
+# 10 = weekend, 11 = NSE holiday. Both are correct, expected outcomes and
+# must NOT be reported as unit failures or they will page you every Saturday.
+#
+# 12 (calendar unknown) is deliberately ABSENT: that means the VPS could not
+# establish the holiday calendar, which is a real problem needing a human,
+# and it SHOULD surface as a failed unit.
+SuccessExitStatus=10 11
+
+User=paper
+WorkingDirectory=/opt/paper-trading/paper_trading
+
+# flock is the FIRST executable, not a wrapper word: Type=oneshot stops
+# systemd starting a second copy of this unit, but it cannot stop a human
+# running live.py by hand during a timer-started session. Two sessions would
+# write the same SQLite DB and append the same journal concurrently, which
+# silently corrupts the slippage measurement this whole phase exists to make.
+#
+# -n = fail immediately rather than queue behind the running session. A
+# second invocation exits 1 (a unit failure, which is correct -- someone
+# tried to start a session that was already running).
+#
+# ORDER MATTERS: flock -n <lockfile> <program> <args...>. The lock lives
+# OUTSIDE paper_trading/ so it is never confused with measurement data.
+ExecStart=/usr/bin/flock -n /opt/paper-trading/.session.lock /opt/paper-trading/.venv/bin/python session_guard.py --exec live.py
+
+# The session must not outlive the trading day under any circumstance.
+TimeoutStartSec=8h
+
+StandardOutput=append:/opt/paper-trading/logs/live.log
+StandardError=append:/opt/paper-trading/logs/live.log
+
+# .secrets holds the TOTP secret and PIN; keep the blast radius small.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

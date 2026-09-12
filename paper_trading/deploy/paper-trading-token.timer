@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh the Fyers token before the open
+
+[Timer]
+# 08:30 IST, ~50 min before the session. Deliberate gap: Fyers throttles
+# repeated login attempts with a 429 that lasts minutes, so a failure at
+# 09:14 may still be throttled at 09:20. This leaves room to intervene.
+OnCalendar=Mon-Fri 08:30 Asia/Kolkata
+Persistent=false
+Unit=paper-trading-token.service
+
+[Install]
+WantedBy=timers.target

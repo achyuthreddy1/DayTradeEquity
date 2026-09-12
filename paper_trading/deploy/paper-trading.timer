@@ -1,0 +1,18 @@
+[Unit]
+Description=Start the NSE paper-trading session on weekday mornings
+
+[Timer]
+# 09:20 IST -- after the 09:15 open, before the 09:30 opening range closes.
+# The timezone is stated EXPLICITLY: an Oracle VPS defaults to UTC, and
+# "09:20" on a UTC host would fire at 14:50 IST, long after the setup window.
+OnCalendar=Mon-Fri 09:20 Asia/Kolkata
+
+# Mon-Fri above only removes weekends. NSE holidays are not expressible in a
+# systemd calendar, so session_guard.py handles those -- which is why the
+# service must tolerate exit code 11.
+Persistent=false
+AccuracySec=10s
+Unit=paper-trading.service
+
+[Install]
+WantedBy=timers.target

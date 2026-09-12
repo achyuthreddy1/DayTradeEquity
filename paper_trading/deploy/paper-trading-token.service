@@ -1,0 +1,17 @@
+[Unit]
+Description=Refresh the daily Fyers access token (headless TOTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Restart=no
+User=paper
+WorkingDirectory=/opt/paper-trading/paper_trading
+ExecStart=/opt/paper-trading/.venv/bin/python fyers_auth.py --auto
+StandardOutput=append:/opt/paper-trading/logs/auth.log
+StandardError=append:/opt/paper-trading/logs/auth.log
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
