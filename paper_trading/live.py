@@ -55,6 +55,11 @@ import telegram_notifier  # noqa: E402  (observes only, never votes -- see its d
 
 POLL_SECONDS = 60
 
+# The data resolution live.py requests, and how long to let the final bar
+# settle past its own close before trusting it. See _settle_final_bar().
+BAR_MINUTES = 5
+SETTLE_MARGIN_SECONDS = 30
+
 
 def _loader():
     from fyers_data_loader import FyersDataLoader
@@ -209,6 +214,46 @@ def status_line(sym: str, df: pd.DataFrame, s: Signal, cfg) -> str:
             return (f"SHORT @{entry:.2f}  now {last:.2f}  "
                     f"({100*(entry-last)/entry:+.2f}%)  stop {stop:.2f}")
     return f"inside range (low {post['low'].min():.2f} vs OR low {s.or_low:.2f})"
+
+
+def _settle_final_bar(ld, cfg, chosen, frames, tickers, day, history,
+                      poll: int) -> None:
+    """Wait for the bar stamped cfg.exit_time to close, then refresh once.
+
+    engine.simulate_day prices a time exit at the CLOSE of that bar
+    (`cl[-1]`), and a 5-minute bar stamped 15:15 is not complete until
+    15:20. The polling loop stops the instant the clock reads 15:15:00, so
+    breaking out there hands the engine a bar a few seconds old: the
+    journalled exit is whatever tick happened to land first, not the close
+    the backtest computes. That is a systematic live-vs-backtest gap on
+    every time exit -- the majority of trades -- in a forward test whose
+    entire purpose is comparing live net% against a narrow expected band.
+    It is invisible day to day because the journal and the instrumentation
+    are built from the same frame, so they agree with each other while
+    both disagree with the backtest.
+
+    The exit-quote probe deliberately runs BEFORE this wait: that snapshot
+    must describe the book at the exit, not five minutes after it.
+    """
+    target = (datetime.combine(day, cfg.exit_time)
+              + timedelta(minutes=BAR_MINUTES, seconds=SETTLE_MARGIN_SECONDS))
+    if now_ist() < target:
+        print(f"  waiting until {target.strftime('%H:%M:%S')} for the "
+              f"{cfg.exit_time.strftime('%H:%M')} bar to close before journalling")
+        while True:
+            left = (target - now_ist()).total_seconds()
+            if left <= 0:
+                break
+            _time.sleep(min(poll, max(1.0, left)))
+    for s in chosen:
+        try:
+            frames[s.symbol] = fetch_today(ld, tickers[s.symbol], day, True,
+                                           history.get(s.symbol))
+        except Exception as exc:
+            # Keep the last good frame rather than losing the day: a stale
+            # final bar is a small price error, no frame is no trade record.
+            print(f"     ! {s.symbol} final refresh failed "
+                  f"({type(exc).__name__}) -- journalling the last good frame")
 
 
 def main() -> None:
@@ -401,6 +446,8 @@ def main() -> None:
                 except Exception as exc:
                     print(f"  [instrumentation] exit probe failed: "
                           f"{type(exc).__name__}: {str(exc)[:60]}")
+                _settle_final_bar(ld, cfg, chosen, frames, tickers, day,
+                                  history, a.poll)
             break
         _time.sleep(a.poll)
 
