@@ -49,6 +49,13 @@ run "universe fetch from NSE (100 midcaps)"    $PY -c "from market_data import l
 run "journal integrity (no dup symbol/day)"    $PY -c "
 import csv, pathlib
 p = pathlib.Path('journal.csv')
+if p.exists() and p.stat().st_size == 0:
+    # journal.csv is gitignored, so a fresh deploy has none and a deploy
+    # script may leave a zero-byte placeholder. Say so distinctly instead
+    # of letting it read as '0 rows, all good' -- that ambiguity hid a
+    # crash once (EmptyDataError on the first day that produced a trade).
+    print('  zero-byte placeholder -- treated as empty, tolerated')
+    raise SystemExit(0)
 if not p.exists():
     print('  no journal yet -- fine before the first session'); raise SystemExit(0)
 rows = list(csv.DictReader(p.open()))

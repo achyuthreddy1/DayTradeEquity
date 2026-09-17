@@ -15,6 +15,7 @@ strong enough to say otherwise.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -28,6 +29,35 @@ JOURNAL = Path(__file__).resolve().parent / "journal.csv"
 SIGNALS_LOG = Path(__file__).resolve().parent / "signals.csv"
 
 
+def _read_existing(path: Path) -> pd.DataFrame:
+    """Rows already journalled, or an empty frame.
+
+    A missing file and a ZERO-BYTE file both mean "nothing recorded yet".
+    The zero-byte case is not hypothetical: journal.csv is gitignored, so a
+    fresh deploy has no journal, and creating the path as an empty
+    placeholder is the obvious thing for a deploy script to do. Testing
+    only path.exists() and handing that placeholder to pd.read_csv raises
+    EmptyDataError, which kills the session AFTER the trades are simulated
+    but BEFORE they are persisted -- the worst possible moment.
+    """
+    if not path.exists() or path.stat().st_size == 0:
+        return pd.DataFrame()
+    return pd.read_csv(path)
+
+
+def _write_atomic(df: pd.DataFrame, path: Path) -> None:
+    """Rewrite the journal via a temp file + rename.
+
+    The journal is the system of record for a months-long forward test and
+    every append rewrites it whole, so a crash or a full disk mid-write
+    would truncate it. os.replace() is atomic within a filesystem: readers
+    see either the old journal or the new one, never a torn one.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    df.to_csv(tmp, index=False)
+    os.replace(tmp, path.resolve())
+
+
 def append(trades, path: Path = JOURNAL) -> int:
     """Append trades, skipping any (symbol, day) already recorded so a
     re-run of the same day cannot double-count."""
@@ -35,8 +65,8 @@ def append(trades, path: Path = JOURNAL) -> int:
         return 0
     new = pd.DataFrame([asdict(t) for t in trades])
     new["day"] = pd.to_datetime(new["day"]).dt.date
-    if path.exists():
-        old = pd.read_csv(path)
+    old = _read_existing(path)
+    if not old.empty:
         old["day"] = pd.to_datetime(old["day"]).dt.date
         seen = set(zip(old["symbol"], old["day"]))
         new = new[[(s, d) not in seen for s, d in zip(new["symbol"], new["day"])]]
@@ -45,14 +75,14 @@ def append(trades, path: Path = JOURNAL) -> int:
         out = pd.concat([old, new], ignore_index=True)
     else:
         out = new
-    out.sort_values(["day", "symbol"]).to_csv(path, index=False)
+    _write_atomic(out.sort_values(["day", "symbol"]), path)
     return len(new)
 
 
 def load(path: Path = JOURNAL) -> pd.DataFrame:
-    if not path.exists():
-        return pd.DataFrame()
-    d = pd.read_csv(path)
+    d = _read_existing(path)
+    if d.empty:
+        return d
     d["day"] = pd.to_datetime(d["day"])
     return d
 
