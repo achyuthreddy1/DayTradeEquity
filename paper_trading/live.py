@@ -232,8 +232,12 @@ def _settle_final_bar(ld, cfg, chosen, frames, tickers, day, history,
     are built from the same frame, so they agree with each other while
     both disagree with the backtest.
 
-    The exit-quote probe deliberately runs BEFORE this wait: that snapshot
-    must describe the book at the exit, not five minutes after it.
+    The exit-quote probe runs AFTER this wait, not before it. Fyers labels
+    a bar by the START of its interval, so the bar stamped 15:15 covers
+    15:15-15:20 and the fill it implies happens at 15:20. Snapshotting the
+    book at 15:15 would price a trade five minutes before it occurs -- the
+    same error as POLICYBZR's two-hour-late probe on 2026-09-17, just
+    smaller and on every single time exit.
     """
     target = (datetime.combine(day, cfg.exit_time)
               + timedelta(minutes=BAR_MINUTES, seconds=SETTLE_MARGIN_SECONDS))
@@ -437,6 +441,13 @@ def main() -> None:
         done = (not live) or now_ist().time() >= cfg.exit_time
         if done:
             if live:
+                # Settle FIRST, then probe. The engine's time exit is the
+                # close of the bar labelled cfg.exit_time, which Fyers
+                # labels by interval start -- so the fill lands at 15:20,
+                # not 15:15. Probing the book at 15:15 would measure it
+                # ~5 minutes before the trade it is supposed to price.
+                _settle_final_bar(ld, cfg, chosen, frames, tickers, day,
+                                  history, a.poll)
                 try:
                     exit_recs = instrumentation.build_records(
                         day, signals, chosen, frames, [], tickers,
@@ -446,8 +457,6 @@ def main() -> None:
                 except Exception as exc:
                     print(f"  [instrumentation] exit probe failed: "
                           f"{type(exc).__name__}: {str(exc)[:60]}")
-                _settle_final_bar(ld, cfg, chosen, frames, tickers, day,
-                                  history, a.poll)
             break
         _time.sleep(a.poll)
 
